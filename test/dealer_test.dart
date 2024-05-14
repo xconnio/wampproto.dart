@@ -138,5 +138,42 @@ void main() {
         throwsA(predicate((e) => e is Exception && e.toString().contains("no pending calls for session"))),
       );
     });
+
+    test("test progressive call invocation", () {
+      var procedureProCallInv = "io.xconn.test_progressive_call_inv";
+      var calleeId = 5;
+      var callerId = 6;
+      dealer
+        ..addSession(calleeId)
+        ..addSession(callerId);
+
+      var register = Register(1, procedureProCallInv);
+      dealer.receiveMessage(calleeId, register);
+
+      var call = Call(2, procedureProCallInv, options: {optionProgress: true});
+      var messageWithRecipient = dealer.receiveMessage(callerId, call);
+      expect(messageWithRecipient.recipient, calleeId);
+
+      var invMessage = messageWithRecipient.message as Invocation;
+      expect(invMessage.details[optionProgress], isTrue);
+      var invocationRequestId = invMessage.requestID;
+
+      for (var i = 0; i < 10; i++) {
+        var call = Call(2, procedureProCallInv, options: {optionProgress: true});
+        var messageWithRecipient = dealer.receiveMessage(callerId, call);
+        expect(messageWithRecipient.recipient, calleeId);
+
+        var invMessage = messageWithRecipient.message as Invocation;
+        expect(invMessage.details[optionProgress], isTrue);
+        expect(invMessage.requestID, equals(invocationRequestId));
+      }
+
+      var callMsg = Call(2, procedureProCallInv);
+      var msgWithRecipient = dealer.receiveMessage(callerId, callMsg);
+      expect(msgWithRecipient.recipient, calleeId);
+
+      var invocationMessage = msgWithRecipient.message as Invocation;
+      expect(invocationMessage.details.containsKey(optionProgress), isFalse);
+    });
   });
 }

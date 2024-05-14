@@ -1,3 +1,4 @@
+import "package:meta/meta.dart";
 import "package:wampproto/idgen.dart";
 import "package:wampproto/messages.dart";
 import "package:wampproto/src/types.dart";
@@ -7,18 +8,42 @@ const optionReceiveProgress = "receive_progress";
 const optionProgress = "progress";
 
 class PendingInvocation {
-  PendingInvocation(this.requestID, this.callerID, this.calleeID, {required this.receiveProgress});
+  PendingInvocation(
+    this.requestID,
+    this.callerID,
+    this.calleeID, {
+    required this.progress,
+    required this.receiveProgress,
+  });
 
   final int requestID;
   final int callerID;
   final int calleeID;
+  final bool progress;
   final bool receiveProgress;
+}
+
+@immutable
+class CallMap {
+  const CallMap(this.key1, this.key2);
+
+  final int key1;
+  final int key2;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CallMap && runtimeType == other.runtimeType && key1 == other.key1 && key2 == other.key2;
+
+  @override
+  int get hashCode => key1.hashCode ^ key2.hashCode;
 }
 
 class Dealer {
   final Map<String, Registration> _registrationsByProcedure = {};
   final Map<int, Map<int, Registration>> _registrationsBySession = {};
   final Map<int, PendingInvocation> _pendingCalls = {};
+  final Map<CallMap, int> _callToInvocationId = {};
 
   final _idGen = SessionScopeIDGenerator();
 
@@ -53,6 +78,19 @@ class Dealer {
     return _registrationsByProcedure.containsKey(procedure);
   }
 
+  void _addCall(
+    int callId,
+    int invocationId,
+    int callerId,
+    int calleeId,
+    bool progress,
+    bool receiveProgress,
+  ) {
+    _pendingCalls[invocationId] =
+        PendingInvocation(callId, callerId, calleeId, progress: progress, receiveProgress: receiveProgress);
+    _callToInvocationId[CallMap(callerId, callId)] = invocationId;
+  }
+
   MessageWithRecipient receiveMessage(int sessionID, Message message) {
     if (message is Call) {
       var registration = _registrationsByProcedure[message.uri];
@@ -68,20 +106,34 @@ class Dealer {
       }
 
       var receiveProgress = message.options[optionReceiveProgress] ?? false;
-      int requestID = _idGen.next();
-      _pendingCalls[requestID] = PendingInvocation(
-        message.requestID,
-        sessionID,
-        calleeID,
-        receiveProgress: receiveProgress,
-      );
+      var progress = message.options[optionProgress] ?? false;
+      int? invocationID;
+      if (progress) {
+        invocationID = _callToInvocationId[CallMap(sessionID, message.requestID)];
+        if (invocationID == null) {
+          invocationID = _idGen.next();
+          _addCall(message.requestID, invocationID, sessionID, calleeID, progress, receiveProgress);
+        }
+      } else {
+        invocationID = _idGen.next();
+        _addCall(message.requestID, invocationID, sessionID, calleeID, progress, receiveProgress);
+      }
+
+      Map<String, dynamic> details = {};
+      if (receiveProgress) {
+        details[optionReceiveProgress] = true;
+      }
+
+      if (progress) {
+        details[optionProgress] = true;
+      }
 
       var invocation = Invocation(
-        requestID,
+        invocationID,
         registration.id,
         args: message.args,
         kwargs: message.kwargs,
-        details: receiveProgress ? {optionReceiveProgress: receiveProgress} : {},
+        details: details,
       );
       return MessageWithRecipient(invocation, calleeID);
     } else if (message is Yield) {
@@ -101,6 +153,7 @@ class Dealer {
         details[optionProgress] = receiveProgress;
       } else {
         _pendingCalls.remove(message.requestID);
+        _callToInvocationId.remove(CallMap(invocation.callerID, invocation.requestID));
       }
       var result = Result(invocation.requestID, args: message.args, kwargs: message.kwargs, details: details);
       return MessageWithRecipient(result, invocation.callerID);
