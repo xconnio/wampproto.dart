@@ -6,24 +6,43 @@ abstract class IAbortFields {
   Map<String, dynamic> get details;
 
   String get reason;
+
+  List<dynamic> get args;
+
+  Map<String, dynamic> get kwargs;
 }
 
 class AbortFields implements IAbortFields {
-  AbortFields(this._details, this._reason);
+  AbortFields(
+    this._details,
+    this._reason, {
+    List<dynamic>? args,
+    Map<String, dynamic>? kwargs,
+  })  : _args = args ?? [],
+        _kwargs = kwargs ?? {};
 
   final Map<String, dynamic> _details;
   final String _reason;
+
+  final List<dynamic> _args;
+  final Map<String, dynamic> _kwargs;
 
   @override
   Map<String, dynamic> get details => _details;
 
   @override
   String get reason => _reason;
+
+  @override
+  List get args => _args;
+
+  @override
+  Map<String, dynamic> get kwargs => _kwargs;
 }
 
 class Abort implements Message {
-  Abort(Map<String, dynamic> details, String reason) {
-    _abortFields = AbortFields(details, reason);
+  Abort(Map<String, dynamic> details, String reason, {List<dynamic>? args, Map<String, dynamic>? kwargs}) {
+    _abortFields = AbortFields(details, reason, args: args, kwargs: kwargs);
   }
 
   Abort.withFields(this._abortFields);
@@ -34,11 +53,13 @@ class Abort implements Message {
 
   static final _validationSpec = ValidationSpec(
     minLength: 3,
-    maxLength: 3,
+    maxLength: 5,
     message: text,
     spec: {
       1: validateDetails,
       2: validateReason,
+      3: validateArgs,
+      4: validateKwargs,
     },
   );
 
@@ -51,7 +72,7 @@ class Abort implements Message {
   static Abort parse(final List<dynamic> message) {
     var fields = validateMessage(message, id, text, _validationSpec);
 
-    return Abort(fields.details!, fields.reason!);
+    return Abort(fields.details!, fields.reason!, args: fields.args, kwargs: fields.kwargs);
   }
 
   @override
