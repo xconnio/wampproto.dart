@@ -1,7 +1,9 @@
 import "package:pinenacl/ed25519.dart";
 import "package:test/test.dart";
 
+import "package:wampproto/auth.dart";
 import "package:wampproto/src/auth/cryptosign.dart";
+import "package:wampproto/src/auth/wampcra.dart";
 
 import "helper.dart";
 
@@ -49,6 +51,42 @@ void main() {
       );
 
       var isVerified = verifyCryptoSignSignature(signature.trim(), Base16Encoder.instance.decode(testPublicKey));
+      expect(isVerified, true);
+    });
+  });
+
+  group("CRAAuth", () {
+    const testSecret = "private";
+    var testSecretBytes = Uint8List.fromList(testSecret.codeUnits);
+
+    test("GenerateCRAChallenge", () async {
+      var challenge = generateWampCRAChallenge(1, "anonymous", "anonymous", "static");
+
+      var signChallengeCommand = "auth cra sign-challenge $challenge $testSecret";
+      var signature = await runCommand(signChallengeCommand);
+
+      var verifySignatureCommand = "auth cra verify-signature $challenge ${signature.trim()} $testSecret";
+      await runCommand(verifySignatureCommand);
+    });
+
+    test("SignCRAChallenge", () async {
+      var signChallengeCommand = "auth cra generate-challenge 1 anonymous anonymous static";
+      var challenge = await runCommand(signChallengeCommand);
+
+      var signature = signWampCRAChallenge(challenge, testSecretBytes);
+
+      var verifySignatureCommand = "auth cra verify-signature $challenge ${signature.trim()} $testSecret";
+      await runCommand(verifySignatureCommand);
+    });
+
+    test("VerifyCRASignature", () async {
+      var verifiedCRACommand = "auth cra generate-challenge 1 anonymous anonymous static";
+      var challenge = await runCommand(verifiedCRACommand);
+
+      var signChallengeCommand = "auth cra sign-challenge ${challenge.trim()} $testSecret";
+      var signature = await runCommand(signChallengeCommand);
+
+      var isVerified = verifyWampCRASignature(signature.trim(), challenge.trim(), testSecretBytes);
       expect(isVerified, true);
     });
   });
